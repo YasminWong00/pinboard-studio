@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -10,7 +10,7 @@ import {
 import './App.css'
 
 type Category = 'Idea' | 'Note' | 'Reference' | 'Task' | 'Research'
-type IdeaStatus = 'Unsorted' | 'Saved' | 'In Progress'
+type IdeaStatus = 'Unsorted' | 'Saved' | 'In Progress' | 'Done' | 'Rejected' | 'Archived'
 type SortMode = 'manual' | 'newest' | 'oldest' | 'category'
 
 type IdeaCard = {
@@ -28,6 +28,27 @@ type IdeaCard = {
   rotation: number
   z: number
   accent: string
+}
+
+type ApiIdeaCard = {
+  id: number
+  title: string
+  category: Category
+  status: IdeaStatus
+  source: string | null
+  summary: string
+  tags: string[] | null
+  related_ids: number[] | string[] | null
+  x: number
+  y: number
+  rotation: number | string
+  z: number
+  accent: string
+  created_at: string
+}
+
+type ApiResponse<T> = {
+  data: T
 }
 
 const categoryColors: Record<Category, string> = {
@@ -146,18 +167,112 @@ const emptyDraft = {
   tags: '',
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api'
+
+function formatDate(value: string) {
+  return value.slice(0, 10)
+}
+
+function fromApiIdea(apiIdea: ApiIdeaCard): IdeaCard {
+  return {
+    id: String(apiIdea.id),
+    title: apiIdea.title,
+    category: apiIdea.category,
+    status: apiIdea.status,
+    source: apiIdea.source ?? 'Workspace note',
+    createdAt: formatDate(apiIdea.created_at),
+    summary: apiIdea.summary,
+    tags: apiIdea.tags ?? [],
+    relatedIds: (apiIdea.related_ids ?? []).map(String),
+    x: apiIdea.x,
+    y: apiIdea.y,
+    rotation: Number(apiIdea.rotation),
+    z: apiIdea.z,
+    accent: apiIdea.accent,
+  }
+}
+
+function toApiPayload(draft: typeof emptyDraft) {
+  return {
+    title: draft.title.trim(),
+    category: draft.category,
+    status: draft.status,
+    source: draft.source.trim() || 'Workspace note',
+    summary: draft.summary.trim(),
+    tags: draft.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    accent: categoryColors[draft.category],
+  }
+}
+
+async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.headers ?? {}),
+    },
+    ...options,
+  })
+
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status}`)
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  return response.json() as Promise<T>
+}
+
 function App() {
-  const [ideas, setIdeas] = useState<IdeaCard[]>(initialIdeas)
+  const [ideas, setIdeas] = useState<IdeaCard[]>([])
   const [sortMode, setSortMode] = useState<SortMode>('manual')
   const [categoryFilter, setCategoryFilter] = useState<'All' | Category>('All')
   const [unsortedOnly, setUnsortedOnly] = useState(false)
   const [showConnections, setShowConnections] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [isEditorOpen, setIsEditorOpen] = useState(false)
   const [draft, setDraft] = useState(emptyDraft)
+  const [isLoading, setIsLoading] = useState(true)
+  const [apiError, setApiError] = useState<string | null>(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const maxZ = Math.max(...ideas.map((idea) => idea.z), 1)
+
+  useEffect(() => {
+    let ignore = false
+
+    async function loadIdeas() {
+      try {
+        setIsLoading(true)
+        setApiError(null)
+        const response = await apiRequest<ApiResponse<ApiIdeaCard[]>>('/ideas')
+
+        if (ignore) return
+
+        setIdeas(response.data.map(fromApiIdea))
+      } catch {
+        if (!ignore) {
+          setIdeas([])
+          setApiError('Backend API unavailable. Start Laravel to load board data.')
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadIdeas()
+
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   const visibleIdeas = useMemo(() => {
     const filtered = ideas.filter((idea) => {
@@ -197,29 +312,82 @@ function App() {
   function handleDragEnd(event: DragEndEvent) {
     const activeId = String(event.active.id)
     const { x, y } = event.delta
+    const activeIdea = ideas.find((idea) => idea.id === activeId)
+
+    if (!activeIdea) return
+
+    const updatedIdea = {
+      ...activeIdea,
+      x: Math.max(0, Math.min(1010, activeIdea.x + x)),
+      y: Math.max(0, Math.min(500, activeIdea.y + y)),
+      z: maxZ + 1,
+    }
 
     setIdeas((currentIdeas) =>
-      currentIdeas.map((idea) =>
-        idea.id === activeId
-          ? {
-              ...idea,
-              x: Math.max(0, Math.min(1010, idea.x + x)),
-              y: Math.max(0, Math.min(500, idea.y + y)),
-              z: maxZ + 1,
-            }
-          : idea,
-      ),
+      currentIdeas.map((idea) => (idea.id === activeId ? updatedIdea : idea)),
     )
     setSortMode('manual')
+
+    if (!apiError) {
+      apiRequest(`/ideas/${activeId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          x: updatedIdea.x,
+          y: updatedIdea.y,
+          z: updatedIdea.z,
+        }),
+      }).catch(() => setApiError('Could not save the new card position.'))
+    }
   }
 
   function resetDraft() {
     setEditingId(null)
+    setIsEditorOpen(false)
     setDraft(emptyDraft)
+  }
+
+  function resetBoardView() {
+    const resetIdeas = ideas.map((idea, index) => {
+      const fallback = initialIdeas[index % initialIdeas.length]
+
+      return {
+        ...idea,
+        x: fallback.x,
+        y: fallback.y,
+        rotation: fallback.rotation,
+        z: index + 1,
+      }
+    })
+
+    setIdeas(resetIdeas)
+    setSortMode('manual')
+    setCategoryFilter('All')
+    setUnsortedOnly(false)
+    setShowConnections(true)
+    setSelectedId(null)
+    resetDraft()
+
+    if (!apiError) {
+      Promise.all(
+        resetIdeas.map((idea) =>
+          apiRequest(`/ideas/${idea.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              x: idea.x,
+              y: idea.y,
+              rotation: idea.rotation,
+              z: idea.z,
+            }),
+          }),
+        ),
+      ).catch(() => setApiError('Could not save the reset board layout.'))
+    }
   }
 
   function editIdea(idea: IdeaCard) {
     setEditingId(idea.id)
+    setSelectedId(null)
+    setIsEditorOpen(true)
     setDraft({
       title: idea.title,
       category: idea.category,
@@ -230,45 +398,46 @@ function App() {
     })
   }
 
-  function saveIdea() {
+  async function saveIdea() {
     if (!draft.title.trim() || !draft.summary.trim()) return
 
-    const payload = {
-      title: draft.title.trim(),
-      category: draft.category,
-      status: draft.status,
-      source: draft.source.trim() || 'Workspace note',
-      summary: draft.summary.trim(),
-      tags: draft.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-      accent: categoryColors[draft.category],
-    }
+    const payload = toApiPayload(draft)
 
     if (editingId) {
-      setIdeas((currentIdeas) =>
-        currentIdeas.map((idea) => (idea.id === editingId ? { ...idea, ...payload } : idea)),
-      )
-      resetDraft()
+      try {
+        const response = await apiRequest<ApiResponse<ApiIdeaCard>>(`/ideas/${editingId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        setIdeas((currentIdeas) =>
+          currentIdeas.map((idea) => (idea.id === editingId ? fromApiIdea(response.data) : idea)),
+        )
+        resetDraft()
+      } catch {
+        setApiError('Could not save the idea. Please check the backend server.')
+      }
       return
     }
 
-    const id = `${payload.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`
-    setIdeas((currentIdeas) => [
-      ...currentIdeas,
-      {
-        ...payload,
-        id,
-        createdAt: new Date().toISOString().slice(0, 10),
-        relatedIds: currentIdeas.slice(0, 2).map((idea) => idea.id),
-        x: 90 + ((currentIdeas.length * 68) % 720),
-        y: 86 + ((currentIdeas.length * 54) % 360),
-        rotation: ((currentIdeas.length % 5) - 2) * 1.2,
-        z: maxZ + 1,
-      },
-    ])
-    resetDraft()
+    const newIdea = {
+      ...payload,
+      related_ids: ideas.slice(0, 2).map((idea) => Number(idea.id)).filter(Boolean),
+      x: 90 + ((ideas.length * 68) % 720),
+      y: 86 + ((ideas.length * 54) % 360),
+      rotation: ((ideas.length % 5) - 2) * 1.2,
+      z: maxZ + 1,
+    }
+
+    try {
+      const response = await apiRequest<ApiResponse<ApiIdeaCard>>('/ideas', {
+        method: 'POST',
+        body: JSON.stringify(newIdea),
+      })
+      setIdeas((currentIdeas) => [...currentIdeas, fromApiIdea(response.data)])
+      resetDraft()
+    } catch {
+      setApiError('Could not create the idea. Please check the backend server.')
+    }
   }
 
   function deleteIdea(ideaId: string) {
@@ -282,6 +451,12 @@ function App() {
     )
     if (selectedId === ideaId) setSelectedId(null)
     if (editingId === ideaId) resetDraft()
+
+    if (!ideaId.startsWith('local-') && !apiError) {
+      apiRequest(`/ideas/${ideaId}`, {
+        method: 'DELETE',
+      }).catch(() => setApiError('Could not delete the idea from the backend.'))
+    }
   }
 
   return (
@@ -319,6 +494,9 @@ function App() {
                 Sort: {mode}
               </button>
             ))}
+            <button className="ctrl" onClick={resetBoardView} type="button">
+              Reset board
+            </button>
           </div>
           <div className="control-group">
             <select
@@ -347,6 +525,12 @@ function App() {
           </div>
         </section>
 
+        {(isLoading || apiError) && (
+          <p className={apiError ? 'api-status is-error' : 'api-status'}>
+            {isLoading ? 'Loading ideas from backend...' : apiError}
+          </p>
+        )}
+
         <p className="hint">drag any card to rearrange - tap a title for details - connections show related ideas</p>
 
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -369,7 +553,7 @@ function App() {
         </DndContext>
 
         <section className="idea-form" aria-label="Create or edit idea">
-          <h2>{editingId ? 'Edit idea' : 'New idea'}</h2>
+          <h2>New idea</h2>
           <input
             aria-label="Title"
             value={draft.title}
@@ -392,7 +576,7 @@ function App() {
             value={draft.status}
             onChange={(event) => setDraft({ ...draft, status: event.target.value as IdeaStatus })}
           >
-            {(['Unsorted', 'Saved', 'In Progress'] as IdeaStatus[]).map((status) => (
+            {(['Unsorted', 'Saved', 'In Progress', 'Done', 'Rejected', 'Archived'] as IdeaStatus[]).map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
@@ -417,10 +601,10 @@ function App() {
             placeholder="Summary"
           />
           <button className="primary-action" onClick={saveIdea} type="button">
-            {editingId ? 'Save note' : 'Add idea'}
+            Add idea
           </button>
           <button className="ghost-action" onClick={resetDraft} type="button">
-            Reset
+            Clear
           </button>
         </section>
       </section>
@@ -431,6 +615,15 @@ function App() {
           relatedIdeas={ideas.filter((idea) => selectedIdea.relatedIds.includes(idea.id))}
           onClose={() => setSelectedId(null)}
           onEdit={() => editIdea(selectedIdea)}
+        />
+      )}
+
+      {isEditorOpen && (
+        <EditorPaper
+          draft={draft}
+          onChange={setDraft}
+          onClose={resetDraft}
+          onSave={saveIdea}
         />
       )}
     </main>
@@ -470,6 +663,9 @@ function BoardCard({
     >
       <span className="color-pin" aria-hidden="true" />
       <span className="soft-tape" aria-hidden="true" />
+      {['Done', 'Rejected', 'Archived'].includes(idea.status) && (
+        <span className={`status-stamp status-stamp-${idea.status.toLowerCase()}`}>{idea.status}</span>
+      )}
       <div className="card-meta">
         <span>{idea.category}</span>
         <time>{idea.createdAt}</time>
@@ -533,6 +729,7 @@ function DetailPanel({
     <div className="detail-backdrop" role="presentation" onMouseDown={onClose}>
       <section
         className="detail-card"
+        style={{ color: idea.accent }}
         role="dialog"
         aria-modal="true"
         aria-label={`${idea.title} details`}
@@ -576,6 +773,103 @@ function DetailPanel({
         <button className="primary-action" onClick={onEdit} type="button">
           Edit idea
         </button>
+      </section>
+    </div>
+  )
+}
+
+function EditorPaper({
+  draft,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  draft: typeof emptyDraft
+  onChange: (draft: typeof emptyDraft) => void
+  onClose: () => void
+  onSave: () => void
+}) {
+  return (
+    <div className="editor-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="editor-paper"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Edit idea"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button className="detail-close" onClick={onClose} type="button" aria-label="Close editor">
+          x
+        </button>
+        <p className="eyebrow">Edit idea</p>
+        <label>
+          Title
+          <input
+            value={draft.title}
+            onChange={(event) => onChange({ ...draft, title: event.target.value })}
+            placeholder="Idea title"
+          />
+        </label>
+        <div className="editor-row">
+          <label>
+            Category
+            <select
+              value={draft.category}
+              onChange={(event) => onChange({ ...draft, category: event.target.value as Category })}
+            >
+              {(['Idea', 'Note', 'Reference', 'Task', 'Research'] as Category[]).map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Status
+            <select
+              value={draft.status}
+              onChange={(event) => onChange({ ...draft, status: event.target.value as IdeaStatus })}
+            >
+              {(['Unsorted', 'Saved', 'In Progress', 'Done', 'Rejected', 'Archived'] as IdeaStatus[]).map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label>
+          Reference
+          <input
+            value={draft.source}
+            onChange={(event) => onChange({ ...draft, source: event.target.value })}
+            placeholder="Source or reference"
+          />
+        </label>
+        <label>
+          Tags
+          <input
+            value={draft.tags}
+            onChange={(event) => onChange({ ...draft, tags: event.target.value })}
+            placeholder="React, UI, portfolio"
+          />
+        </label>
+        <label>
+          Summary
+          <textarea
+            value={draft.summary}
+            onChange={(event) => onChange({ ...draft, summary: event.target.value })}
+            placeholder="Write the full idea notes here"
+          />
+        </label>
+        <div className="editor-actions">
+          <button className="primary-action" onClick={onSave} type="button">
+            Save note
+          </button>
+          <button className="ghost-action" onClick={onClose} type="button">
+            Cancel
+          </button>
+        </div>
       </section>
     </div>
   )

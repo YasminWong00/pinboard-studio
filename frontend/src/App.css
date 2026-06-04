@@ -42,6 +42,7 @@
   border: 4px solid rgba(88, 45, 23, 0.28);
   padding: 8px 18px;
   color: rgba(88, 45, 23, 0.28);
+  font-family: var(--typewriter);
   font-size: 2rem;
   font-weight: 900;
   letter-spacing: 0.1em;
@@ -68,9 +69,11 @@
   max-width: 650px;
   margin: 0;
   color: #241105;
-  font-size: clamp(4.4rem, 9vw, 8.8rem);
-  line-height: 0.86;
-  letter-spacing: -0.06em;
+  font-family: var(--typewriter);
+  font-size: clamp(3.6rem, 7vw, 6.6rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: 0;
 }
 
 .purpose,
@@ -154,6 +157,22 @@
   padding: 0 58px 8px;
 }
 
+.api-status {
+  width: fit-content;
+  margin: 0 58px 8px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #4b3424;
+  background: rgba(255, 246, 230, 0.72);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.api-status.is-error {
+  color: #7a261e;
+  background: rgba(255, 230, 214, 0.84);
+}
+
 .pinboard {
   position: relative;
   width: min(1180px, calc(100% - 92px));
@@ -228,6 +247,35 @@
   transform: rotate(6deg);
 }
 
+.status-stamp {
+  position: absolute;
+  top: 58px;
+  right: 18px;
+  z-index: 3;
+  border: 3px double currentColor;
+  padding: 2px 8px;
+  color: #8b2d24;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.78;
+  pointer-events: none;
+  transform: rotate(-13deg);
+}
+
+.status-stamp-done {
+  color: #2f6b3d;
+}
+
+.status-stamp-rejected {
+  color: #8b2d24;
+}
+
+.status-stamp-archived {
+  color: #6f5b3f;
+}
+
 .card-meta {
   display: flex;
   justify-content: space-between;
@@ -249,9 +297,11 @@
   color: #21160f;
   background: transparent;
   cursor: pointer;
-  font-size: 1.18rem;
-  font-weight: 900;
-  line-height: 1.12;
+  font-family: var(--typewriter);
+  font-size: 1.04rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.22;
   text-align: left;
 }
 
@@ -259,6 +309,7 @@
 .detail-card p {
   margin: 0;
   color: #4f3a29;
+  font-family: var(--typewriter);
   font-size: 0.9rem;
   line-height: 1.42;
 }
@@ -341,35 +392,118 @@
   color: #25170f;
 }
 
+.idea-form select,
+.select-control,
+.editor-paper select {
+  appearance: none;
+  padding-right: 34px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #3a2415 50%),
+    linear-gradient(135deg, #3a2415 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 12px) 50%;
+  background-size:
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+}
+
+.idea-form input:focus,
+.idea-form select:focus,
+.idea-form textarea:focus,
+.select-control:focus,
+.editor-paper input:focus,
+.editor-paper select:focus,
+.editor-paper textarea:focus {
+  outline: 2px solid rgba(74, 69, 145, 0.48);
+  outline-offset: 2px;
+}
+
 .idea-form textarea {
   resize: vertical;
 }
 
-.detail-backdrop {
+.detail-backdrop,
+.editor-backdrop {
   position: fixed;
   inset: 0;
   z-index: 2000;
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgba(18, 13, 10, 0.64);
+  background: rgba(18, 13, 10, 0.5);
 }
 
-.detail-card {
+.detail-card,
+.editor-paper {
   position: relative;
   width: min(580px, 100%);
   max-height: calc(100vh - 36px);
   overflow: auto;
-  border-radius: 8px;
-  padding: 28px;
-  background: #fff8e8;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  border: 0;
+  border-radius: 2px;
+  padding: 46px 34px 30px;
+  color: #8b5cf6;
+  background:
+    linear-gradient(90deg, transparent 0 34px, rgba(160, 55, 55, 0.12) 35px, transparent 36px),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.42), transparent 30%),
+    repeating-linear-gradient(#fff8e8 0 30px, #e4d8bd 31px 32px);
+  box-shadow:
+    0 26px 72px rgba(0, 0, 0, 0.44),
+    14px 18px 0 rgba(48, 25, 10, 0.12),
+    -10px 14px 24px rgba(42, 22, 9, 0.2);
+  transform: rotate(-1.1deg);
+}
+
+.editor-paper {
+  width: min(620px, 100%);
+  padding-top: 42px;
+  transform: rotate(0.8deg);
+}
+
+.detail-card > *,
+.editor-paper > * {
+  position: relative;
+  z-index: 1;
+}
+
+.detail-card::before,
+.editor-paper::before {
+  content: '';
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  z-index: 2;
+  width: 116px;
+  height: 30px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.24), transparent),
+    rgba(226, 211, 168, 0.78);
+  box-shadow: 0 2px 5px rgba(70, 47, 22, 0.2);
+  transform: translateX(-50%) rotate(2.5deg);
+}
+
+.detail-card::after,
+.editor-paper::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: 50%;
+  z-index: 3;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, #fff, currentColor 44%, color-mix(in srgb, currentColor 70%, #111));
+  box-shadow: 0 3px 6px rgba(32, 10, 4, 0.32);
+  transform: translateX(78px);
 }
 
 .detail-close {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 20px;
+  right: 18px;
+  z-index: 4;
   width: 34px;
   height: 34px;
   border: 0;
@@ -383,8 +517,52 @@
 .detail-card h2 {
   margin: 0 0 12px;
   color: #21160f;
-  font-size: 2rem;
-  line-height: 1.05;
+  font-family: var(--typewriter);
+  font-size: 1.85rem;
+  line-height: 1.08;
+}
+
+.editor-paper label {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 12px;
+  color: #5b3d28;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.editor-paper input,
+.editor-paper select,
+.editor-paper textarea {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(88, 45, 23, 0.24);
+  border-radius: 5px;
+  padding: 11px 12px;
+  background: rgba(255, 252, 241, 0.94);
+  color: #21160f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 1px 0 rgba(88, 45, 23, 0.08);
+}
+
+.editor-paper textarea {
+  min-height: 170px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.editor-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 .detail-card dl {
@@ -392,10 +570,11 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin: 18px 0;
+  color: #21160f;
 }
 
 .detail-card dl div {
-  border-top: 1px dashed rgba(88, 45, 23, 0.2);
+  border-top: 1px dashed rgba(88, 45, 23, 0.24);
   padding-top: 10px;
 }
 
@@ -417,9 +596,10 @@
   flex-wrap: wrap;
   gap: 8px;
   margin: 18px 0;
-  border-radius: 8px;
+  border: 1px dashed rgba(88, 45, 23, 0.2);
+  border-radius: 2px;
   padding: 14px;
-  background: rgba(121, 78, 38, 0.08);
+  background: rgba(255, 248, 232, 0.55);
 }
 
 .related-box h3 {
