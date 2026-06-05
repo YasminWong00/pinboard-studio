@@ -7,49 +7,19 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core'
+import {
+  createIdea as createIdeaRecord,
+  deleteIdea as deleteIdeaRecord,
+  getIdeas,
+  updateIdea,
+  type Category,
+  type IdeaCard,
+  type IdeaStatus,
+  type IdeaPayload,
+} from './api/ideas'
 import './App.css'
 
-type Category = 'Idea' | 'Note' | 'Reference' | 'Task' | 'Research'
-type IdeaStatus = 'Unsorted' | 'Saved' | 'In Progress' | 'Done' | 'Rejected' | 'Archived'
 type SortMode = 'manual' | 'newest' | 'oldest' | 'category'
-
-type IdeaCard = {
-  id: string
-  title: string
-  category: Category
-  status: IdeaStatus
-  source: string
-  createdAt: string
-  summary: string
-  tags: string[]
-  relatedIds: string[]
-  x: number
-  y: number
-  rotation: number
-  z: number
-  accent: string
-}
-
-type ApiIdeaCard = {
-  id: number
-  title: string
-  category: Category
-  status: IdeaStatus
-  source: string | null
-  summary: string
-  tags: string[] | null
-  related_ids: number[] | string[] | null
-  x: number
-  y: number
-  rotation: number | string
-  z: number
-  accent: string
-  created_at: string
-}
-
-type ApiResponse<T> = {
-  data: T
-}
 
 const categoryColors: Record<Category, string> = {
   Idea: '#8b5cf6',
@@ -167,32 +137,7 @@ const emptyDraft = {
   tags: '',
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api'
-
-function formatDate(value: string) {
-  return value.slice(0, 10)
-}
-
-function fromApiIdea(apiIdea: ApiIdeaCard): IdeaCard {
-  return {
-    id: String(apiIdea.id),
-    title: apiIdea.title,
-    category: apiIdea.category,
-    status: apiIdea.status,
-    source: apiIdea.source ?? 'Workspace note',
-    createdAt: formatDate(apiIdea.created_at),
-    summary: apiIdea.summary,
-    tags: apiIdea.tags ?? [],
-    relatedIds: (apiIdea.related_ids ?? []).map(String),
-    x: apiIdea.x,
-    y: apiIdea.y,
-    rotation: Number(apiIdea.rotation),
-    z: apiIdea.z,
-    accent: apiIdea.accent,
-  }
-}
-
-function toApiPayload(draft: typeof emptyDraft) {
+function toApiPayload(draft: typeof emptyDraft): IdeaPayload {
   return {
     title: draft.title.trim(),
     category: draft.category,
@@ -205,26 +150,6 @@ function toApiPayload(draft: typeof emptyDraft) {
       .filter(Boolean),
     accent: categoryColors[draft.category],
   }
-}
-
-async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers ?? {}),
-    },
-    ...options,
-  })
-
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`)
-  }
-
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return response.json() as Promise<T>
 }
 
 function App() {
@@ -250,11 +175,11 @@ function App() {
       try {
         setIsLoading(true)
         setApiError(null)
-        const response = await apiRequest<ApiResponse<ApiIdeaCard[]>>('/ideas')
+        const loadedIdeas = await getIdeas()
 
         if (ignore) return
 
-        setIdeas(response.data.map(fromApiIdea))
+        setIdeas(loadedIdeas)
       } catch {
         if (!ignore) {
           setIdeas([])
@@ -329,13 +254,10 @@ function App() {
     setSortMode('manual')
 
     if (!apiError) {
-      apiRequest(`/ideas/${activeId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          x: updatedIdea.x,
-          y: updatedIdea.y,
-          z: updatedIdea.z,
-        }),
+      updateIdea(activeId, {
+        x: updatedIdea.x,
+        y: updatedIdea.y,
+        z: updatedIdea.z,
       }).catch(() => setApiError('Could not save the new card position.'))
     }
   }
@@ -370,14 +292,11 @@ function App() {
     if (!apiError) {
       Promise.all(
         resetIdeas.map((idea) =>
-          apiRequest(`/ideas/${idea.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({
-              x: idea.x,
-              y: idea.y,
-              rotation: idea.rotation,
-              z: idea.z,
-            }),
+          updateIdea(idea.id, {
+            x: idea.x,
+            y: idea.y,
+            rotation: idea.rotation,
+            z: idea.z,
           }),
         ),
       ).catch(() => setApiError('Could not save the reset board layout.'))
@@ -405,12 +324,9 @@ function App() {
 
     if (editingId) {
       try {
-        const response = await apiRequest<ApiResponse<ApiIdeaCard>>(`/ideas/${editingId}`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
-        })
+        const updatedIdea = await updateIdea(editingId, payload)
         setIdeas((currentIdeas) =>
-          currentIdeas.map((idea) => (idea.id === editingId ? fromApiIdea(response.data) : idea)),
+          currentIdeas.map((idea) => (idea.id === editingId ? updatedIdea : idea)),
         )
         resetDraft()
       } catch {
@@ -429,11 +345,8 @@ function App() {
     }
 
     try {
-      const response = await apiRequest<ApiResponse<ApiIdeaCard>>('/ideas', {
-        method: 'POST',
-        body: JSON.stringify(newIdea),
-      })
-      setIdeas((currentIdeas) => [...currentIdeas, fromApiIdea(response.data)])
+      const createdIdea = await createIdeaRecord(newIdea)
+      setIdeas((currentIdeas) => [...currentIdeas, createdIdea])
       resetDraft()
     } catch {
       setApiError('Could not create the idea. Please check the backend server.')
@@ -453,9 +366,7 @@ function App() {
     if (editingId === ideaId) resetDraft()
 
     if (!ideaId.startsWith('local-') && !apiError) {
-      apiRequest(`/ideas/${ideaId}`, {
-        method: 'DELETE',
-      }).catch(() => setApiError('Could not delete the idea from the backend.'))
+      deleteIdeaRecord(ideaId).catch(() => setApiError('Could not delete the idea from the backend.'))
     }
   }
 
